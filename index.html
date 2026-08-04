@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AIxFACTORY - PRO Viewer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+:root{--bg:#070711;--panel:#;--panel2:#;--border:rgba(139,92,246,0.18);--accent:#;--accent2:#;--text:#fff;--muted:#}
+*{box-sizing:border-box;font-family:Inter,monospace}
+body{margin:0;background:var(--bg);color:var(--text);height:100vh;display:flex;flex-direction:column}
+.topbar{height:52px;background:rgba(15,12,35,0.95);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 14px;gap:8px}
+.brand{font-weight:800;font-size:13px}.brand b{color:var(--accent)}
+.btn{border:none;border-radius:9px;padding:8px 14px;font-weight:800;font-size:11px;cursor:pointer;display:flex;align-items:center;gap:6px}
+.btn-run{background:linear-gradient(90deg,var(--accent),var(--accent2));color:#fff}
+.btn-ghost{background:rgba(255,255,255,0.06);border:1px solid var(--border);color:var(--muted)}
+.btn-zip{background:#;color:#fff}
+.main{flex:1;display:flex;min-height:0}
+.sidebar{width:240px;background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column}
+.side-head{padding:10px 12px;font-size:11px;font-weight:800;color:var(--muted);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.file-list{flex:1;overflow:auto;padding:6px}
+.file-item{padding:8px 10px;border-radius:8px;font-size:11px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;margin-bottom:2px}
+.file-item.active{background:rgba(139,92,246,0.15);color:#fff;border:1px solid var(--border)}
+.file-item:hover{background:rgba(255,255,255,0.06)}
+.file-item.del{opacity:0.4}.file-item:hover.del{opacity:1}
+.editor-area{flex:1;display:flex;flex-direction:column;background:var(--panel2)}
+.editor-head{height:36px;background:var(--panel);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 12px;font-size:11px;gap:8px}
+textarea{flex:1;background:var(--panel2);color:#;border:none;resize:none;padding:14px;font-size:12px;line-height:1.6;outline:none}
+.add-box{padding:8px;border-top:1px solid var(--border);display:flex;gap:6px}
+.add-box input{flex:1;background:var(--panel2);border:1px solid var(--border);border-radius:7px;padding:7px 10px;color:#fff;font-size:11px;outline:none}
+.preview-page{position:fixed;inset:0;z-index:9999;background:#fff;display:none;flex-direction:column}
+.preview-page.open{display:flex}
+.preview-bar{height:48px;background:#;color:#fff;display:flex;align-items:center;padding:0 12px;gap:10px}
+iframe#previewFrame{flex:1;width:100%;border:none}
+</style>
+</head>
+<body>
+<div class="topbar">
+<div class="brand"><b>AIx</b> PRO BUILDER</div>
+<button class="btn btn-run" id="runBtn">▶ RUN Preview</button>
+<button class="btn btn-zip" id="zipBtn">💾 Save ZIP</button>
+<button class="btn btn-ghost" id="clearBtn">🧹 Clear All</button>
+<span style="margin-left:auto;font-size:10px;color:var(--muted)">Add any file: public/index.js, package.json</span>
+</div>
+<div class="main">
+<div class="sidebar">
+<div class="side-head"><span>FILES</span><span id="fileCount">0</span></div>
+<div class="file-list" id="fileList"></div>
+<div class="add-box"><input id="newFileName" placeholder="e.g. public/app.js"><button class="btn btn-ghost" id="addFileBtn" style="padding:6px 10px">+ Add</button></div>
+</div>
+<div class="editor-area"><div class="editor-head"><span id="currentFile">No file</span><span style="margin-left:auto;color:var(--muted)">Ctrl+Enter = Run</span></div><textarea id="codeEditor" placeholder="Select a file..."></textarea></div>
+</div>
+
+<div class="preview-page" id="previewPage">
+<div class="preview-bar"><button class="btn btn-ghost" id="backBtn">← Back</button><b>Preview Result</b><span style="font-size:10px;color:var(--muted)">Live output</span></div>
+<iframe id="previewFrame"></iframe>
+</div>
+
+<script>
+let files=JSON.parse(localStorage.getItem('pro_files')||'null')||{
+"index.html":"<!DOCTYPE html>\n<html>\n<head><link rel=\"stylesheet\" href=\"style.css\"></head>\n<body>\n<h1 class=\"editable\">AIxFACTORY</h1>\n<div class=\"inner-box\">Hello World</div>\n<script src=\"app.js\"><\/script>\n</body>\n</html>",
+"style.css":"body{background:#070711;color:#fff;font-family:Inter}.inner-box{border:1px solid #;padding:20px;border-radius:12px}",
+"app.js":"console.log('AIxFACTORY ready');",
+"package.json":"{\n \"name\": \"aix-factory\",\n \"version\": \"1.0.0\"\n}",
+"public/index.js":"// public file example"
+};
+let current=null;
+const fileList=document.getElementById('fileList');
+const editor=document.getElementById('codeEditor');
+const currentLabel=document.getElementById('currentFile');
+
+function save(){localStorage.setItem('pro_files',JSON.stringify(files));}
+function renderList(){
+fileList.innerHTML='';
+Object.keys(files).forEach(path=>{
+const div=document.createElement('div');
+div.className='file-item'+(current===path?' active':'');
+div.innerHTML=`<span>📄 ${path}</span><span class="del" data-del="${path}">✕</span>`;
+div.onclick=(e)=>{if(e.target.dataset.del) return; openFile(path);};
+fileList.appendChild(div);
+});
+document.getElementById('fileCount').textContent=Object.keys(files).length+' files';
+document.querySelectorAll('[data-del]').forEach(b=>{
+b.onclick=()=>{if(confirm('Delete '+b.dataset.del+'?')){delete files[b.dataset.del]; if(current===b.dataset.del) current=null; save(); renderList(); editor.value=''; currentLabel.textContent='No file';}};
+});
+}
+function openFile(path){
+if(current) files[current]=editor.value;
+current=path;
+editor.value=files[path];
+currentLabel.textContent=path;
+renderList();
+save();
+}
+editor.addEventListener('input',()=>{if(current){files[current]=editor.value; save();}});
+
+document.getElementById('addFileBtn').onclick=()=>{
+const input=document.getElementById('newFileName');
+let name=input.value.trim(); if(!name) return;
+if(files[name]){alert('File exists'); return;}
+files[name]=''; input.value=''; save(); renderList(); openFile(name);
+};
+
+function buildPreview(){
+if(current) files[current]=editor.value;
+let html=files['index.html']||'';
+const cssFiles=Object.keys(files).filter(f=>f.endsWith('.css'));
+const jsFiles=Object.keys(files).filter(f=>f.endsWith('.js') && f!=='public/index.js');
+
+let cssInject=cssFiles.map(f=>`<style>/* ${f} */\n${files[f]}</style>`).join('\n');
+let jsInject=jsFiles.map(f=>`<script>/* ${f} */\n${files[f]}\n<\/script>`).join('\n');
+
+if(html.includes('</head>')) html=html.replace('</head>',cssInject+'</head>');
+else html=cssInject+html;
+if(html.includes('</body>')) html=html.replace('</body>',jsInject+'</body>');
+else html+=jsInject;
+return html;
+}
+
+document.getElementById('runBtn').onclick=()=>{
+const finalHTML=buildPreview();
+const frame=document.getElementById('previewFrame');
+frame.srcdoc=finalHTML;
+document.getElementById('previewPage').classList.add('open');
+};
+
+document.getElementById('backBtn').onclick=()=>{
+document.getElementById('previewPage').classList.remove('open');
+};
+
+document.getElementById('zipBtn').onclick=async()=>{
+if(current) files[current]=editor.value;
+const zip=new JSZip();
+Object.entries(files).forEach(([path,content])=>{
+zip.file(path,content);
+});
+const blob=await zip.generateAsync({type:'blob'});
+const a=document.createElement('a');
+a.href=URL.createObjectURL(blob);
+a.download='aix-project-'+Date.now()+'.zip';
+a.click();
+};
+
+document.getElementById('clearBtn').onclick=()=>{
+if(!confirm('Clear ALL files? This cannot be undone.')) return;
+files={}; current=null; editor.value=''; localStorage.removeItem('pro_files');
+renderList(); currentLabel.textContent='No file';
+};
+
+document.addEventListener('keydown',e=>{
+if((e.ctrlKey||e.metaKey) && e.key==='Enter'){document.getElementById('runBtn').click();}
+});
+
+renderList();
+if(Object.keys(files).length) openFile(Object.keys(files)[0]);
+</script>
+</body>
+</html>
